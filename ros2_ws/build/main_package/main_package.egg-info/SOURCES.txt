@@ -1,0 +1,13 @@
+package.xml
+setup.cfg
+setup.py
+main_package/__init__.py
+main_package/tf2text.py
+main_package.egg-info/PKG-INFO
+main_package.egg-info/SOURCES.txt
+main_package.egg-info/dependency_links.txt
+main_package.egg-info/entry_points.txt
+main_package.egg-info/requires.txt
+main_package.egg-info/top_level.txt
+main_package.egg-info/zip-safe
+resource/main_package

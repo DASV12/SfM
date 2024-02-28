@@ -1,0 +1,15 @@
+# Ignorar imágenes
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+
+# Ignorar archivos .mcap
+*.mcap
+
+# Ignorar archivos .ply
+*.ply
+
+# Ignorar contenido dentro de la carpeta colmap_ws
+/colmap_ws/*
