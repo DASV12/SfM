@@ -26,10 +26,10 @@ def add_gps_info_to_image(image_path, latitude, longitude, altitude):
     piexif.insert(exif_bytes, image_path)
 
 # Directorio donde se encuentran las imágenes
-image_directory = "/serial/colmap_ws/rosbag_video/images"
+image_directory = "/workspaces/SfM/colmap_ws/rosbag_office/images"
 
 # Directorio donde se encuentra el archivo de texto con los datos de GPS
-gps_file_path = "/serial/colmap_ws/rosbag_video/gps_data.txt"
+gps_file_path = "/workspaces/SfM/colmap_ws/rosbag_office/gps_data.txt"
 
 # Expresión regular para buscar datos de GPS en el archivo de texto
 gps_data_regex = re.compile(r"image_\d+\.jpg, GPS Data: {'latitude': ([0-9.-]+), 'longitude': ([0-9.-]+), 'altitude': ([0-9.-]+)}")

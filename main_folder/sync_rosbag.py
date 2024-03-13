@@ -59,7 +59,7 @@ class RosBagSerializer(object):
         topics: tp.List[str],
         queue_size: int = 30,
         time_delta: float = 0.1,
-        imshow: bool = False,
+        imshow: bool = True,
         undistort: bool = True,
         fps: int = 10,
         verbose=True,
@@ -90,10 +90,10 @@ class RosBagSerializer(object):
         self.rosbag_dir = os.path.dirname(rosbag_path)
         self.bridge = CvBridge()
 
-        self.output_dir = os.path.join(os.path.expanduser('/serial/colmap_ws/rosbag_video'), 'images')
+        self.output_dir = os.path.join(os.path.expanduser('/workspaces/SfM/colmap_ws/rosbag_office'), 'images')
         os.makedirs(self.output_dir, exist_ok=True)
 
-        self.imu_gps_output_dir = os.path.join(os.path.expanduser('/serial/colmap_ws'), 'rosbag_video')
+        self.imu_gps_output_dir = os.path.join(os.path.expanduser('/workspaces/SfM/colmap_ws'), 'rosbag_office')
         os.makedirs(self.imu_gps_output_dir, exist_ok=True)
 
         self.cams_params = {}  # for all usb cameras
@@ -218,21 +218,7 @@ class RosBagSerializer(object):
         else:
             raise ValueError(f"Unsupported message type {type(msg)}")
         
-    def parse_compressed_image(
-        self, msg: sensor_msgs.msg.CompressedImage, topic: str
-    ) -> tp.Dict[str, tp.Any]:
-        np_arr = np.array(msg.data, dtype=np.uint8)
-        cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        # only undistort usb camera images, stereo is already undistorted
-        if self.cams_params.get(topic) and self.undistort:
-            cv_image = cv2.remap(
-                cv_image,
-                self.cams_params[topic]["map1"],
-                self.cams_params[topic]["map2"],
-                cv2.INTER_LINEAR,
-            )
-        return {"data": cv_image}
-
+    
     def parse_camera_info(
         self, msg: sensor_msgs.msg.CameraInfo
     ) -> tp.Dict[str, tp.Any]:
@@ -264,6 +250,32 @@ class RosBagSerializer(object):
         )
 
         return params
+    
+    def scale_calibration(self, params: dict, factor: int) -> dict:
+        """! Scale calibration parameters
+
+        @param params (dict) calibration parameters
+        @param factor (int) scale factor
+
+        @return scaled calibration parameters
+        """
+        if factor != 1:
+            params["k"] = params["k"] * factor
+            params["k"][2, 2] = 1
+        if params["distortion_model"] in ("equidistant", "fisheye"):
+            initUndistortRectifyMap_fun = cv2.fisheye.initUndistortRectifyMap
+        else:
+            initUndistortRectifyMap_fun = cv2.initUndistortRectifyMap
+        params["map1"], params["map2"] = initUndistortRectifyMap_fun(
+            params["k"] * factor,
+            params["d"],
+            params["r"],
+            params["k"] * factor,
+            params["dim"],
+            # params["dim"] * factor,
+            cv2.CV_16SC2,
+        )
+        return params
 
     def parse_image(
         self, msg: sensor_msgs.msg.Image, topic: str
@@ -277,6 +289,22 @@ class RosBagSerializer(object):
         """
         # Convert image to cv2 image
         cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        # only undistort usb camera images, stereo is already undistorted
+        if self.cams_params.get(topic) and self.undistort:
+            print("distorted")
+            cv_image = cv2.remap(
+                cv_image,
+                self.cams_params[topic]["map1"],
+                self.cams_params[topic]["map2"],
+                cv2.INTER_LINEAR,
+            )
+        return {"data": cv_image}
+    
+    def parse_compressed_image(
+        self, msg: sensor_msgs.msg.CompressedImage, topic: str
+    ) -> tp.Dict[str, tp.Any]:
+        np_arr = np.array(msg.data, dtype=np.uint8)
+        cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
         # only undistort usb camera images, stereo is already undistorted
         if self.cams_params.get(topic) and self.undistort:
             cv_image = cv2.remap(
@@ -344,25 +372,28 @@ class RosBagSerializer(object):
         """
         while self.rosbag.has_next():
             (topic, data, t) = self.rosbag.read_next()
-            #if topic == "/camera/color/image_raw":
-            # Error con /uavcan/chassis/motors_rpm_feedback | Type: can_msgs/msg/MotorsRPM
-            # AttributeError: module 'can_msgs.msg' has no attribute 'MotorsRPM'
-            #if topic == "/uavcan/chassis/motors_rpm_feedback":
-            #    continue # Saltar al siguiente mensaje
-            if topic not in self.topics:
-                continue
+            
+            #if topic not in self.topics:
+            #    continue
 
             msg_type = get_message(self.topic_types_map[topic])
             msg = deserialize_message(data, msg_type)
+
+            # Camerainfo topics are too slow to sync with other topics
+            if isinstance(msg, CameraInfo):
+            #if isinstance(msg, sensor_msgs.msg.CameraInfo):
+                corresponding_topic = topic.replace("camera_info", "image_raw")
+                #print(corresponding_topic)
+                self.cams_params[corresponding_topic] = self.parse_camera_info(msg)
+                # print(self.cams_params)
+                if corresponding_topic == "/video_mapping/right/image_raw":
+                    self.cams_params[corresponding_topic] = self.scale_calibration(self.cams_params[corresponding_topic], 2)
 
             if topic in self.filters_dict:
                 filter_obj = self.filters_dict[topic]
                 filter_obj.signalMessage(msg)
 
-            # Camerainfo topics are too slow to sync with other topics
-            if isinstance(msg, CameraInfo):
-                corresponding_topic = topic.replace("camera_info", "image_raw")
-                self.cams_params[corresponding_topic] = self.parse_camera_info(msg)
+            
 
             # DEBUG
             # if isinstance(msg, sensor_msgs.msg.Image):
@@ -373,9 +404,16 @@ class RosBagSerializer(object):
 
 def main(
     sync_topics: tp.List[str] = [
-        "/camera/color/image_raw",
-        "/imu/data",
-        "/fix",
+        #"/camera/color/image_raw",
+        #"/camera/color/camera_info",
+        #"/video_mapping/left/image_raw",
+        #"/video_mapping/left/camera_info",
+        "/video_mapping/right/image_raw",
+        #"/video_mapping/right/camera_info",
+        #"/video_mapping/rear/image_raw",
+        #"/video_mapping/rear/camera_info",
+        #"/imu/data",
+        #"/fix",
         #"/tf_static"
     ],
     fps: int = 10,
@@ -394,8 +432,8 @@ def main(
     @imshow: if True, shows the images
     """
 
-    bag_path = os.path.abspath(os.path.expanduser("/serial/main_folder/bag.mcap"))
-
+    bag_path = os.path.abspath(os.path.expanduser("/workspaces/SfM/colmap_ws/rosbag_office/rosbag/sfm_0.mcap"))
+    
     if debug:
         import debugpy  # pylint: disable=import-error
 

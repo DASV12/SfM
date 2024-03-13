@@ -1,3 +1,0 @@
-[console_scripts]
-main_node = main_package.tf2text:main
-
