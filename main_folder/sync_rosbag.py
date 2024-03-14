@@ -159,7 +159,7 @@ class RosBagSerializer(object):
             timestamp = msg.header.stamp if hasattr(msg.header, 'stamp') else None
 
             # Print the topic, timestamp, and any other relevant information
-            print(f"Topic: {topic}, Timestamp: {timestamp}")
+            #print(f"Topic: {topic}, Timestamp: {timestamp}")
 
             if isinstance(msg, sensor_msgs.msg.CompressedImage) or isinstance(msg, sensor_msgs.msg.Image):
                 img_data[topic] = msg_info_dict.pop("data")
@@ -370,24 +370,57 @@ class RosBagSerializer(object):
         message and sending them to the approximate synchronizer that
         will trigger the synchronization of the messages function.
         """
-        while self.rosbag.has_next():
+
+        camera_info_topics = [topic for topic in self.topics if "image_raw" in topic]
+        camera_info_topics = [topic.replace("image_raw", "camera_info") for topic in camera_info_topics]
+
+        # Diccionario para rastrear si se ha encontrado al menos un mensaje de cada topic de camera_info_topics
+        found_data_for_topics = {topic: False for topic in camera_info_topics}
+
+        # Read rosbag until all camera info needed are found
+        while self.rosbag.has_next() and not all(found_data_for_topics.values()):
             (topic, data, t) = self.rosbag.read_next()
+            print(topic)
             
-            #if topic not in self.topics:
-            #    continue
+            if topic not in camera_info_topics:
+                continue
 
             msg_type = get_message(self.topic_types_map[topic])
             msg = deserialize_message(data, msg_type)
+            #print(topic)
 
-            # Camerainfo topics are too slow to sync with other topics
-            if isinstance(msg, CameraInfo):
-            #if isinstance(msg, sensor_msgs.msg.CameraInfo):
-                corresponding_topic = topic.replace("camera_info", "image_raw")
-                #print(corresponding_topic)
-                self.cams_params[corresponding_topic] = self.parse_camera_info(msg)
-                # print(self.cams_params)
-                if corresponding_topic == "/video_mapping/right/image_raw":
-                    self.cams_params[corresponding_topic] = self.scale_calibration(self.cams_params[corresponding_topic], 2)
+            corresponding_topic = topic.replace("camera_info", "image_raw")
+            self.cams_params[corresponding_topic] = self.parse_camera_info(msg)
+
+            # Marcar el topic como encontrado
+            found_data_for_topics[topic] = True
+
+        print(self.cams_params)
+        
+        # Continue reading the rosbag
+        # We will lost some frames but this way all will have instrinsincs
+        # Another way to do this keeping all frames is by creating a new SequentialReader object
+
+        while self.rosbag.has_next():
+            (topic, data, t) = self.rosbag.read_next()
+            
+            #this is to avoid reading customized messages that can show errors
+            if topic not in self.topics:
+                continue
+
+            print(topic)
+            msg_type = get_message(self.topic_types_map[topic])
+            msg = deserialize_message(data, msg_type)
+
+            # # Camerainfo topics are too slow to sync with other topics
+            # if isinstance(msg, CameraInfo):
+            #     #print(topic)
+            #     corresponding_topic = topic.replace("camera_info", "image_raw")
+            #     #print(corresponding_topic)
+            #     self.cams_params[corresponding_topic] = self.parse_camera_info(msg)
+            #     #print(self.cams_params)
+            #     #if corresponding_topic == "/video_mapping/right/image_raw":
+            #     #    self.cams_params[corresponding_topic] = self.scale_calibration(self.cams_params[corresponding_topic], 2)
 
             if topic in self.filters_dict:
                 filter_obj = self.filters_dict[topic]
@@ -404,20 +437,22 @@ class RosBagSerializer(object):
 
 def main(
     sync_topics: tp.List[str] = [
-        #"/camera/color/image_raw",
+        # include the image_raw and the camera_info of the cameras you want to synchronize
+        # include /fix if you want GPS data
+        "/camera/color/image_raw",
         #"/camera/color/camera_info",
         #"/video_mapping/left/image_raw",
         #"/video_mapping/left/camera_info",
-        "/video_mapping/right/image_raw",
+        #"/video_mapping/right/image_raw",
         #"/video_mapping/right/camera_info",
         #"/video_mapping/rear/image_raw",
         #"/video_mapping/rear/camera_info",
         #"/imu/data",
-        #"/fix",
+        "/fix",
         #"/tf_static"
     ],
     fps: int = 10,
-    undistort: bool = True,
+    undistort: bool = False,
     debug: bool = False,
     imshow: bool = False,
 ):
