@@ -7,6 +7,7 @@ import rosbag2_py
 import sensor_msgs
 import tf2_msgs
 import typer
+import piexif
 from cv_bridge import CvBridge
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
@@ -149,6 +150,7 @@ class RosBagSerializer(object):
             self.pbar.update(1)
 
         img_data = {}
+        imu_gps_data = {}
 
         # Iterate over arguments, each argument is a different msg
         for topic, msg in zip(self.topics, msgs):
@@ -162,18 +164,18 @@ class RosBagSerializer(object):
             #print(f"Topic: {topic}, Timestamp: {timestamp}")
 
             if isinstance(msg, sensor_msgs.msg.CompressedImage) or isinstance(msg, sensor_msgs.msg.Image):
+                #img_data[topic] = msg_info_dict.get("data")
                 img_data[topic] = msg_info_dict.pop("data")
                 cv2.imshow(topic, img_data[topic])
                 cv2.waitKey(1)
 
-                # Guardar las imágenes descomprimidas en el directorio de salida
-                for topic, img_data in img_data.items():
-                    #image_filename = f"{topic}_{msg.header.stamp}.jpg"
-                    #image_filename = f"{msg.header.stamp}.jpg"
-                    image_filename = f"image_{self.i+1:04d}.jpg"
-                    # self.i += 1
-                    image_path = os.path.join(self.output_dir, image_filename)
-                    cv2.imwrite(image_path, img_data) 
+                # # Guardar las imágenes descomprimidas en el directorio de salida
+                # for topic, img_data in img_data.items():
+                #     #image_filename = f"{topic}_{msg.header.stamp}.jpg"
+                #     #image_filename = f"{msg.header.stamp}.jpg"
+                #     image_filename = f"image_{self.i+1:04d}.jpg"
+                #     image_path = os.path.join(self.output_dir, image_filename)
+                #     cv2.imwrite(image_path, img_data) 
             elif isinstance(msg, sensor_msgs.msg.Imu):
                 imu_data = msg_info_dict.get("data")
                 if imu_data:
@@ -181,19 +183,49 @@ class RosBagSerializer(object):
                     with open(imu_file_path, "a") as imu_file:
                         # imu_file.write(f"Timestamp: {timestamp}, IMU Data: {imu_data}\n")
                         imu_file.write(f"{image_filename}, IMU Data: {imu_data}\n")
-                        #self.i += 1
             elif isinstance(msg, sensor_msgs.msg.NavSatFix):
                 gps_data = msg_info_dict.get("data")
                 if gps_data:
-                    gps_file_path = os.path.join(self.imu_gps_output_dir, "gps_data.txt")
-                    with open(gps_file_path, "a") as gps_file:
-                        gps_file.write(f"{image_filename}, GPS Data: {gps_data}\n")
-            # elif isinstance(msg, tf2_msgs.msg.TFMessage):
-            #     tf_data = msg_info_dict.get("data")
-            #     if tf_data:
-            #         tf_file_path = os.path.join(self.imu_gps_output_dir, "tf_data.txt")
-            #         with open(tf_file_path, "a") as tf_file:
-            #             tf_file.write(f"{image_filename}, TF Data: {tf_data}\n")
+                    imu_gps_data['gps'] = gps_data
+                # if gps_data:
+                    # gps_file_path = os.path.join(self.imu_gps_output_dir, "gps_data.txt")
+                    # with open(gps_file_path, "a") as gps_file:
+                    #     gps_file.write(f"{image_filename}, GPS Data: {gps_data}\n")
+
+        # Guardar las imágenes en el directorio de salida con GPS e intrinsics
+        for topic, img_data in img_data.items():
+            image_filename = f"image_{self.i+1:04d}.jpg"
+            image_path = os.path.join(self.output_dir, image_filename)
+            cv2.imwrite(image_path, img_data)
+
+            # Guardar la información de GPS en el EXIF de la imagen
+            if 'gps' in imu_gps_data:
+                exif_dict = piexif.load(image_path)
+                latitude = imu_gps_data['gps']['latitude']
+                longitude = imu_gps_data['gps']['longitude']
+                altitude = imu_gps_data['gps']['altitude']
+                lat = abs(latitude)
+                lon = abs(longitude)
+                lat_deg = int(lat)
+                lat_min = int((lat - lat_deg) * 60)
+                lat_sec = int(((lat - lat_deg) * 60 - lat_min) * 60 * 1000)
+                lon_deg = int(lon)
+                lon_min = int((lon - lon_deg) * 60)
+                lon_sec = int(((lon - lon_deg) * 60 - lon_min) * 60 * 1000)
+                # Asignar valores de latitud, longitud y altitud al diccionario EXIF
+                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = ((lat_deg, 1), (lat_min, 1), (lat_sec, 1000))
+                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = ((lon_deg, 1), (lon_min, 1), (lon_sec, 1000))
+                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = (int(altitude), 1)  # Altitud en centímetros
+                print(exif_dict)
+                # Save updated EXIF data back to the image
+                exif_bytes = piexif.dump(exif_dict)
+                piexif.insert(exif_bytes, image_path)
+                imu_gps_data.pop("gps")
+                # with exiftool.ExifTool() as et:
+                    # et.execute(f"-GPSLongitude={imu_gps_data['gps'].longitude}", image_path)
+                    # et.execute(f"-GPSLatitude={imu_gps_data['gps'].latitude}", image_path)
+                    # Puedes añadir más metadatos GPS si es necesario
+                
         self.i += 1
 
     def parse_msg(self, msg: tp.Any, topic: str) -> tp.Dict[str, tp.Any]:
