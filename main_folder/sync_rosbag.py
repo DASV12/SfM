@@ -176,13 +176,13 @@ class RosBagSerializer(object):
                 #     image_filename = f"image_{self.i+1:04d}.jpg"
                 #     image_path = os.path.join(self.output_dir, image_filename)
                 #     cv2.imwrite(image_path, img_data) 
-            elif isinstance(msg, sensor_msgs.msg.Imu):
-                imu_data = msg_info_dict.get("data")
-                if imu_data:
-                    imu_file_path = os.path.join(self.imu_gps_output_dir, "imu_data.txt")
-                    with open(imu_file_path, "a") as imu_file:
-                        # imu_file.write(f"Timestamp: {timestamp}, IMU Data: {imu_data}\n")
-                        imu_file.write(f"{image_filename}, IMU Data: {imu_data}\n")
+            # elif isinstance(msg, sensor_msgs.msg.Imu):
+            #     imu_data = msg_info_dict.get("data")
+            #     if imu_data:
+            #         imu_file_path = os.path.join(self.imu_gps_output_dir, "imu_data.txt")
+            #         with open(imu_file_path, "a") as imu_file:
+            #             # imu_file.write(f"Timestamp: {timestamp}, IMU Data: {imu_data}\n")
+            #             imu_file.write(f"{image_filename}, IMU Data: {imu_data}\n")
             elif isinstance(msg, sensor_msgs.msg.NavSatFix):
                 gps_data = msg_info_dict.get("data")
                 if gps_data:
@@ -192,15 +192,26 @@ class RosBagSerializer(object):
                     # with open(gps_file_path, "a") as gps_file:
                     #     gps_file.write(f"{image_filename}, GPS Data: {gps_data}\n")
 
-        # Guardar las imágenes en el directorio de salida con GPS e intrinsics
+        # Guardar las imágenes en el directorio de salida con intrinsics y GPS
         for topic, img_data in img_data.items():
             image_filename = f"image_{self.i+1:04d}.jpg"
             image_path = os.path.join(self.output_dir, image_filename)
             cv2.imwrite(image_path, img_data)
 
+            exif_dict = piexif.load(image_path)
+            # Agregar información sobre la distancia focal y los puntos centrales
+            fx = self.cams_params[topic]["k"][0, 0]
+            fy = self.cams_params[topic]["k"][1, 1]
+            cx = self.cams_params[topic]["k"][0, 2]
+            cy = self.cams_params[topic]["k"][1, 2]
+            exif_dict["Exif"][piexif.ExifIFD.FocalLength] = (int(fx*1000), 1000)  # Distancia focal en milímetros
+            #exif_dict["Exif"][piexif.ExifIFD.PixelXDimension] = int(cx)  # Punto central en el eje x
+            #exif_dict["Exif"][piexif.ExifIFD.PixelYDimension] = int(cy)  # Punto central en el eje y
+
+
             # Guardar la información de GPS en el EXIF de la imagen
             if 'gps' in imu_gps_data:
-                exif_dict = piexif.load(image_path)
+                #exif_dict = piexif.load(image_path)
                 latitude = imu_gps_data['gps']['latitude']
                 longitude = imu_gps_data['gps']['longitude']
                 altitude = imu_gps_data['gps']['altitude']
@@ -213,18 +224,18 @@ class RosBagSerializer(object):
                 lon_min = int((lon - lon_deg) * 60)
                 lon_sec = int(((lon - lon_deg) * 60 - lon_min) * 60 * 1000)
                 # Asignar valores de latitud, longitud y altitud al diccionario EXIF
+                exif_dict["GPS"][piexif.GPSIFD.GPSLatitudeRef] = 'N' if latitude >= 0 else 'S'
                 exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = ((lat_deg, 1), (lat_min, 1), (lat_sec, 1000))
+                exif_dict["GPS"][piexif.GPSIFD.GPSLongitudeRef] = 'E' if longitude >= 0 else 'W'
                 exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = ((lon_deg, 1), (lon_min, 1), (lon_sec, 1000))
-                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = (int(altitude), 1)  # Altitud en centímetros
-                print(exif_dict)
-                # Save updated EXIF data back to the image
-                exif_bytes = piexif.dump(exif_dict)
-                piexif.insert(exif_bytes, image_path)
-                imu_gps_data.pop("gps")
-                # with exiftool.ExifTool() as et:
-                    # et.execute(f"-GPSLongitude={imu_gps_data['gps'].longitude}", image_path)
-                    # et.execute(f"-GPSLatitude={imu_gps_data['gps'].latitude}", image_path)
-                    # Puedes añadir más metadatos GPS si es necesario
+                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = (int(altitude*1000), 1000)  # Altitud en metros
+                
+
+            print(exif_dict)
+            # Save updated EXIF data back to the image
+            exif_bytes = piexif.dump(exif_dict)
+            piexif.insert(exif_bytes, image_path)
+            imu_gps_data.pop("gps")
                 
         self.i += 1
 
