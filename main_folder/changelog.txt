@@ -1,0 +1,6 @@
+Mar 13
+File: sync_rosbag.py
+Add: read all intrinsics before start reading images
+Mar 14
+File: sync_rosbag.py
+Add: save images with GPS data. Longitude/Latitude: Degrees, minutes, seconds. Altitude: meters
