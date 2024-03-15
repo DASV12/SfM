@@ -194,8 +194,20 @@ class RosBagSerializer(object):
 
         # Guardar las imágenes en el directorio de salida con intrinsics y GPS
         for topic, img_data in img_data.items():
-            image_filename = f"image_{self.i+1:04d}.jpg"
-            image_path = os.path.join(self.output_dir, image_filename)
+            if "/video_mapping/left/image_raw" in topic:
+                folder_name = "left"
+            elif "/video_mapping/right/image_raw" in topic:
+                folder_name = "right"
+            elif "/camera/color/image_raw" in topic:
+                folder_name = "front"
+            else:
+                folder_name = "unknown"
+            
+            if not os.path.exists(os.path.join(self.output_dir, folder_name)):
+                os.makedirs(os.path.join(self.output_dir, folder_name))
+
+            image_filename = f"{folder_name}_image_{self.i+1:04d}.jpg"
+            image_path = os.path.join(self.output_dir, folder_name, image_filename)
             cv2.imwrite(image_path, img_data)
 
             exif_dict = piexif.load(image_path)
@@ -303,17 +315,38 @@ class RosBagSerializer(object):
         @return scaled calibration parameters
         """
         if factor != 1:
-            params["k"] = params["k"] * factor
-            params["k"][2, 2] = 1
+            # params["k"] = params["k"] * factor
+            # params["k"][2, 2] = 1
+            # params["dim"] = params["dim"] * factor
+
+            params["k"][0, 0] *= factor  # Escalando fx
+            params["k"][1, 1] *= factor  # Escalando fy
+            params["k"][0, 2] *= factor  # Escalando cx
+            params["k"][1, 2] *= factor  # Escalando cy
+            params["dim"] = (params["dim"][0] * factor, params["dim"][1] * factor)  # Escalando dimensiones de la imagen
+        if factor == 1:
+            # params["k"] = params["k"] * factor
+            # params["k"][2, 2] = 1
+            # params["dim"] = params["dim"] * factor
+
+            params["k"][0, 0] *= 1  # Escalando fx
+            params["k"][1, 1] *= 1  # Escalando fy
+            params["k"][0, 2] = 320  # Escalando cx
+            params["k"][1, 2] = 240  # Escalando cy
+            params["dim"] = (640, 480)  # Escalando dimensiones de la imagen
+            # params["k"][0, 2] = 640  # Escalando cx
+            # params["k"][1, 2] = 360  # Escalando cy
+            # params["dim"] = (1280, 720)  # Escalando dimensiones de la imagen
+
         if params["distortion_model"] in ("equidistant", "fisheye"):
             initUndistortRectifyMap_fun = cv2.fisheye.initUndistortRectifyMap
         else:
             initUndistortRectifyMap_fun = cv2.initUndistortRectifyMap
         params["map1"], params["map2"] = initUndistortRectifyMap_fun(
-            params["k"] * factor,
+            params["k"],
             params["d"],
             params["r"],
-            params["k"] * factor,
+            params["k"],
             params["dim"],
             # params["dim"] * factor,
             cv2.CV_16SC2,
@@ -434,6 +467,10 @@ class RosBagSerializer(object):
 
             corresponding_topic = topic.replace("camera_info", "image_raw")
             self.cams_params[corresponding_topic] = self.parse_camera_info(msg)
+            if corresponding_topic == "/video_mapping/right/image_raw":
+                self.cams_params[corresponding_topic] = self.scale_calibration(self.cams_params[corresponding_topic], 2)
+            if corresponding_topic == "/video_mapping/left/image_raw":
+                self.cams_params[corresponding_topic] = self.scale_calibration(self.cams_params[corresponding_topic], 1)
 
             # Marcar el topic como encontrado
             found_data_for_topics[topic] = True
@@ -495,7 +532,7 @@ def main(
         #"/tf_static"
     ],
     fps: int = 10,
-    undistort: bool = False,
+    undistort: bool = True,
     debug: bool = False,
     imshow: bool = False,
 ):

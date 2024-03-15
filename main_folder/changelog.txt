@@ -4,3 +4,7 @@ Add: read all intrinsics before start reading images
 Mar 14
 File: sync_rosbag.py
 Add: save images with GPS data. Longitude/Latitude: Degrees, minutes, seconds. Altitude: meters
+Add: save images with intrinsics
+Add: save right camera undistorted
+Add: save images in different folders per topic
+Pending: left camera intrinsics correction
