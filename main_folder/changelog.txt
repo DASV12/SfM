@@ -8,3 +8,16 @@ Add: save images with intrinsics
 Add: save right camera undistorted
 Add: save images in different folders per topic
 Pending: left camera intrinsics correction
+Mar 21
+
+# Check if /tf is in the topics list
+        if '/tf' in self.topics:
+            # Remove '/tf' from the topics list
+            self.topics.remove('/tf')
+            # Add /tf/odom and /tf/base_link if /tf is present
+            self.topics.extend(['/tf/odom', '/tf/base_link'])
+            
+self.filters_dict = {topic: message_filters.SimpleFilter() for topic in self.topics} #se modifica topics por self.topics
+crear condicional para cambiar el nombre del topic /tf según el child_frame_id a /tf/odom y
+/tf/base_linkpara sincronizar los mensajes de odom y base_link de tf como topics separados
+si no es odom o base_link pasa el while

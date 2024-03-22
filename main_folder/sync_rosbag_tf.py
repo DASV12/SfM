@@ -6,6 +6,8 @@ import message_filters
 import rosbag2_py
 import sensor_msgs
 import tf2_msgs
+import geometry_msgs
+#from tf2_msgs.msg import TFMessage
 import typer
 import piexif
 from cv_bridge import CvBridge
@@ -13,6 +15,7 @@ from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 from tqdm import tqdm
 from sensor_msgs.msg import CameraInfo
+from tf2_msgs.msg import TFMessage
 
 import zstandard
 
@@ -125,9 +128,15 @@ class RosBagSerializer(object):
                 f"Topics in bag: {list(self.topic_types_map.keys())}"
             )
 
-        # Idea taken from C++ example http://wiki.ros.org/rosbag/Cookbook#Analyzing_Stereo_Camera_Data
-        self.filters_dict = {topic: message_filters.SimpleFilter() for topic in topics}
+        # Check if /tf is in the topics list
+        if '/tf' in self.topics:
+            # Remove '/tf' from the topics list
+            #self.topics.remove('/tf')
+            # Add /tf/odom and /tf/base_link if /tf is present
+            self.topics.extend(['/tf/odom', '/tf/base_link'])
 
+        # Idea taken from C++ example http://wiki.ros.org/rosbag/Cookbook#Analyzing_Stereo_Camera_Data
+        self.filters_dict = {topic: message_filters.SimpleFilter() for topic in self.topics} #se modifica topics por self.topics
         self.ts = message_filters.ApproximateTimeSynchronizer(
             list(self.filters_dict.values()), queue_size, time_delta
         )
@@ -490,6 +499,8 @@ class RosBagSerializer(object):
         while self.rosbag.has_next():
             (topic, data, t) = self.rosbag.read_next()
             
+            skip_iteration = False
+
             #this is to avoid reading customized messages that can show errors
             if topic not in self.topics:
                 continue
@@ -497,16 +508,36 @@ class RosBagSerializer(object):
             print(topic)
             msg_type = get_message(self.topic_types_map[topic])
             msg = deserialize_message(data, msg_type)
+            
+            # crear condicional para cambiar el nombre del topic /tf según el child_frame_id a /tf/odom y
+            # /tf/base_linkpara sincronizar los mensajes de odom y base_link de tf como topics separados
+            print("inicio test")
+            print(msg_type)
+            if isinstance(msg, tf2_msgs.msg.TFMessage):
+                for transform in msg.transforms:
+                    print(transform.child_frame_id)
+                    if transform.child_frame_id in ('odom'):
+                        print(topic)
+                        topic = topic.replace("tf", "tf/odom")
+                        print(topic)
+                    elif transform.child_frame_id in ('base_link'):
+                        print(topic)
+                        topic = topic.replace("tf", "tf/base_link")
+                        print(topic)
+                        #print("in tf test")
+                    else:
+                        skip_iteration = True
+            if skip_iteration:
+                continue
 
-            # # Camerainfo topics are too slow to sync with other topics
-            # if isinstance(msg, CameraInfo):
-            #     #print(topic)
-            #     corresponding_topic = topic.replace("camera_info", "image_raw")
-            #     #print(corresponding_topic)
-            #     self.cams_params[corresponding_topic] = self.parse_camera_info(msg)
-            #     #print(self.cams_params)
-            #     #if corresponding_topic == "/video_mapping/right/image_raw":
-            #     #    self.cams_params[corresponding_topic] = self.scale_calibration(self.cams_params[corresponding_topic], 2)
+            print("fin test")
+
+
+
+
+
+
+            # si no es odom o base_link pasa el while
 
             if topic in self.filters_dict:
                 filter_obj = self.filters_dict[topic]
@@ -534,8 +565,8 @@ def main(
         #"/video_mapping/rear/image_raw",
         #"/video_mapping/rear/camera_info",
         #"/imu/data",
-        "/fix",
-        #"/tf"
+        #"/fix",
+        "/tf"
     ],
     fps: int = 10,
     undistort: bool = True,

@@ -11,6 +11,8 @@
 # from the command-line or through a .ini file provided to --project_path.
 
 $ DATASET_PATH=/path/to/project
+$ DATASET_PATH=/home/david_serna/Documents/SfM_Kiwibot_Repository/SfM/colmap_ws/rosbag_office/reconstructions/fuse_2_street_front_gps_spatial
+$ echo $DATASET_PATH
 
 $ colmap automatic_reconstructor \
     --workspace_path $DATASET_PATH \
@@ -65,6 +67,11 @@ $ colmap model_converter \
     --input_path $DATASET_PATH/sparse/0 \
     --output_path $DATASET_PATH/sparse/0/sparseModel.ply \
     --output_type PLY
+    
+$ colmap model_converter \
+    --input_path $DATASET_PATH \
+    --output_path $DATASET_PATH \
+    --output_type BIN
 
 $ python3 /COLMAP/colmap/scripts/python/read_write_model.py --input_model $DATASET_PATH/sparse/0 --output_model $DATASET_PATH/sparse/0 --input_format .bin --output_format .txt
 
@@ -110,3 +117,19 @@ $ colmap model_aligner \
     --alignment_type ecef \
     --robust_alignment 1 \
     --robust_alignment_max_error 3.0 (where 3.0 is the error threshold to be used in RANSAC)
+    
+$ colmap model_aligner \
+    --input_path $DATASET_PATH \
+    --output_path $DATASET_PATH \
+    --ref_images_path $DATASET_PATH/gps_data.txt \
+    --ref_is_gps 1 \
+    --alignment_type ecef \
+    --alignment_max_error 3.0
+    
+$ colmap model_aligner \
+    --input_path $DATASET_PATH \
+    --output_path $DATASET_PATH \
+    --ref_images_path $DATASET_PATH/gps_data.txt \
+    --ref_is_gps 1 \
+    --alignment_type ecef \
+    --alignment_max_error 3.0
