@@ -10,7 +10,7 @@ import geometry_msgs
 #from tf2_msgs.msg import TFMessage
 import typer
 import piexif
-import transforms3d.quaternions as quat
+#import transforms3d.quaternions as quat
 #import tf.transformations as tf
 from cv_bridge import CvBridge
 from rclpy.serialization import deserialize_message
