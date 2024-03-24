@@ -10,12 +10,15 @@ import geometry_msgs
 #from tf2_msgs.msg import TFMessage
 import typer
 import piexif
+import transforms3d.quaternions as quat
+#import tf.transformations as tf
 from cv_bridge import CvBridge
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py.utilities import get_message
 from tqdm import tqdm
 from sensor_msgs.msg import CameraInfo
 from tf2_msgs.msg import TFMessage
+from geometry_msgs.msg import TransformStamped
 
 import zstandard
 
@@ -131,7 +134,7 @@ class RosBagSerializer(object):
         # Check if /tf is in the topics list
         if '/tf' in self.topics:
             # Remove '/tf' from the topics list
-            #self.topics.remove('/tf')
+            self.topics.remove('/tf')
             # Add /tf/odom and /tf/base_link if /tf is present
             self.topics.extend(['/tf/odom', '/tf/base_link'])
 
@@ -155,11 +158,14 @@ class RosBagSerializer(object):
         """! Callback for the approximate time synchronizer of msgs
         @param msgs (list of msgs) list of msgs from the topics
         """
+        print("callback")
         if self.verbose:
             self.pbar.update(1)
 
         img_data = {}
         imu_gps_data = {}
+        gps_data = {}
+        tf_data = {}
 
         # Iterate over arguments, each argument is a different msg
         for topic, msg in zip(self.topics, msgs):
@@ -200,6 +206,50 @@ class RosBagSerializer(object):
                 #     gps_file_path = os.path.join(self.imu_gps_output_dir, "gps_data.txt")
                 #     with open(gps_file_path, "a") as gps_file:
                 #         gps_file.write(f"{image_filename}, GPS Data: {gps_data}\n")
+            elif isinstance(msg, geometry_msgs.msg.TransformStamped):
+                #print("process tf")
+                tf_data = msg_info_dict.get("data")
+                if "/tf/odom" in topic:
+                    print("process tf odom")
+                    x_odom = tf_data["translation"]["x"]
+                    y_odom = tf_data["translation"]["y"]
+                    z_odom = tf_data["translation"]["z"]
+                    rx_odom = tf_data["rotation"]["x"]
+                    ry_odom = tf_data["rotation"]["y"]
+                    rz_odom = tf_data["rotation"]["z"]
+                    w_odom = tf_data["rotation"]["w"]
+                    # Convertir el cuaternión a ángulos de Euler (en radianes)
+                    q = np.array([w_odom, rx_odom, ry_odom, rz_odom])
+                    siny_cosp = 2 * (q[0] * q[3] + q[1] * q[2])
+                    cosy_cosp = 1 - 2 * (q[2] ** 2 + q[3] ** 2)
+                    rz_e_odom = np.arctan2(siny_cosp, cosy_cosp)
+                    #euler_angles_odom = tf.euler_from_quaternion([rx_odom, ry_odom, rz_odom, w_odom])
+                    print(rz_e_odom)
+
+
+                if "/tf/base_link" in topic:
+                    print("process tf base_link")
+                    x_base_link = tf_data["translation"]["x"]
+                    y_base_link = tf_data["translation"]["y"]
+                    z_base_link = tf_data["translation"]["z"]
+                    rx_base_link = tf_data["rotation"]["x"]
+                    ry_base_link = tf_data["rotation"]["y"]
+                    rz_base_link = tf_data["rotation"]["z"]
+                    w_base_link = tf_data["rotation"]["w"]
+                    # Convertir el cuaternión a ángulos de Euler (en radianes)
+                    q = np.array([w_base_link, rx_base_link, ry_base_link, rz_base_link])
+                    siny_cosp = 2 * (q[0] * q[3] + q[1] * q[2])
+                    cosy_cosp = 1 - 2 * (q[2] ** 2 + q[3] ** 2)
+                    rz_e_base_link = np.arctan2(siny_cosp, cosy_cosp)
+                    #euler_angles_odom = tf.euler_from_quaternion([rx_odom, ry_odom, rz_odom, w_odom])
+                    print(rz_e_base_link)
+                    # euler_angles_base_link = tf.euler_from_quaternion([rx_base_link, ry_base_link, rz_base_link, w_base_link])
+                    # print(euler_angles_base_link)
+
+
+                
+                print(tf_data["translation"]["x"])
+                print(tf_data["translation"]["y"])
 
         # Guardar las imágenes en el directorio de salida con intrinsics y GPS
         for topic, img_data in img_data.items():
@@ -250,7 +300,7 @@ class RosBagSerializer(object):
                 exif_dict["GPS"][piexif.GPSIFD.GPSLongitudeRef] = 'E' if longitude >= 0 else 'W'
                 exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = ((lon_deg, 1), (lon_min, 1), (lon_sec, 1000))
                 exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = (int(altitude*1000), 1000)  # Altitud en metros
-                
+                print(exif_dict)
 
             print(exif_dict)
             if gps_data:
@@ -260,9 +310,93 @@ class RosBagSerializer(object):
                         gps_file.write(gps_info)
                         #gps_file.write(f"{image_filename}, GPS Data: {gps_data}\n")
             # Save updated EXIF data back to the image
-            exif_bytes = piexif.dump(exif_dict)
-            piexif.insert(exif_bytes, image_path)
-            imu_gps_data.pop("gps")
+                    exif_bytes = piexif.dump(exif_dict)
+                    piexif.insert(exif_bytes, image_path)
+                    imu_gps_data.pop("gps")
+
+            if tf_data:
+                #transformada desde map(0,0) a base_link: map-odom-base_link
+                ###
+                # # Convertir el cuaternión a una matriz de rotación
+                # print("matrices de rotacion")
+                # #R_odom = quat.quat2mat([w_odom, rx_odom, ry_odom, rz_odom])
+                # R_odom = quat.quat2mat([1, 0, 0, 0])
+                
+                # R_base_link = quat.quat2mat([w_odom, rx_odom, ry_odom, rz_odom])
+                
+                # #R_base_link = quat.quat2mat([w_base_link, rx_base_link, ry_base_link, rz_base_link])
+                # print(R_odom)
+                # print(R_base_link)
+                # # Armar matrices de transformación con rotación y traslación
+                # # Construir la matriz de transformación map-odom
+                # T_odom = np.eye(4)
+                # T_odom[:3, :3] = R_odom
+                # T_odom[0, 3] = x_odom
+                # T_odom[1, 3] = y_odom
+                # T_odom[2, 3] = z_odom
+                # # Construir la matriz de transformación odom-base_link
+                # T_base_link = np.eye(4)
+                # T_base_link[:3, :3] = R_base_link
+                # T_base_link[0, 3] = x_base_link
+                # T_base_link[1, 3] = y_base_link
+                # T_base_link[2, 3] = z_base_link
+                # print("matrices de transformacion")
+                # print(T_odom)
+                # print(T_base_link)
+                # # Multiplicar las matrices
+                # pose_odom = np.dot(T_odom, np.array([0, 0, 0, 1]))
+                # pose = np.dot(T_base_link, pose_odom)
+                # print("vector de posicion")
+                # print(pose)
+                ###
+
+                # pose_x = x_odom + (x_base_link * np.cos(rz_e_odom))
+                # pose_y = y_odom + x_base_link * np.sin(rz_e_odom)
+                pose_odom = np.array([x_odom, y_odom])
+                Rz_odom = np.array([[np.cos(rz_e_odom), -np.sin(rz_e_odom)],
+                                    [np.sin(rz_e_odom), np.cos(rz_e_odom)]])
+                # Traslación en base_link
+                pose_base_link = np.array([x_base_link, y_base_link])
+                R_base_link = np.dot(Rz_odom, pose_base_link)
+
+                pose_x = pose_odom[0] + R_base_link[0]
+                pose_y = pose_odom[1] + R_base_link[1]
+
+                # pose_x = pose[0]
+                # pose_y = pose[1]
+                # pose_x = x_base_link
+                # pose_y = y_base_link
+                pose_z = 0
+                print(pose_x)
+                print(pose_y)
+                print(pose_z)
+
+                #enmascarar coordenadas cartesianas como GPS para poder guardar en exif
+                deg_x = int(pose_x)
+                min_x = int((pose_x - deg_x) * 60 * 10000)
+                deg_y = int(pose_y)
+                min_y = int((pose_y - deg_y) * 60 * 10000)
+                # GPS de EXIF solo acepta numeros positivos por lo que el bag tiene que grabarse sobre el lado positivo del mapa
+                exif_dict["GPS"][piexif.GPSIFD.GPSLatitude] = ((deg_x, 1), (min_x, 10000), (0, 1))
+                exif_dict["GPS"][piexif.GPSIFD.GPSLatitudeRef] = 'N' if pose_y >= 0 else 'S'
+                exif_dict["GPS"][piexif.GPSIFD.GPSLongitude] = ((deg_y, 1), (min_y, 10000), (0, 1))
+                exif_dict["GPS"][piexif.GPSIFD.GPSLongitudeRef] = 'E' if pose_x >= 0 else 'W'
+                exif_dict["GPS"][piexif.GPSIFD.GPSAltitude] = (int(pose_z*1000), 1000)  # Altitud en metros
+                print(exif_dict)
+                # se define un valor cualquiera de altitud para que el GPS pueda ser interpretado por COLMAP
+                # COLMAP guarda estos datos con una prcisión de mm
+                # COLMAP muestra la informacion en grados decimales,
+                # aunque realmente provienen de coordenadas cartesinas con "map" como referencia
+                # Ejm: LAT=78.753 (metros desde el 0,0 del map del rosbag), LON=103.704, ALT=1500.000
+                tf_file_path = os.path.join(self.imu_gps_output_dir, "tf_data.txt")
+                with open(tf_file_path, "a") as tf_file:
+                    tf_info = f"{image_filename} {pose_x} {pose_y}\n"
+                    tf_file.write(tf_info)
+                    #gps_file.write(f"{image_filename}, GPS Data: {gps_data}\n")
+                # Save updated EXIF data back to the image
+                exif_bytes = piexif.dump(exif_dict)
+                piexif.insert(exif_bytes, image_path)
+                print(exif_dict)
                 
         self.i += 1
 
@@ -283,8 +417,8 @@ class RosBagSerializer(object):
             return self.parse_imu_info(msg)
         elif isinstance(msg, sensor_msgs.msg.NavSatFix):
             return self.parse_gps_info(msg)
-        #elif isinstance(msg, tf2_msgs.msg.TFMessage):
-        #    return self.parse_tf_info(msg)
+        elif isinstance(msg, geometry_msgs.msg.TransformStamped):
+           return self.parse_tf_info(msg)
         else:
             raise ValueError(f"Unsupported message type {type(msg)}")
         
@@ -437,23 +571,23 @@ class RosBagSerializer(object):
         }
         return {"data": gps_data}
     
-    # def parse_tf_info(self, msg: tf2_msgs.msg.TFMessage) -> tp.Dict[str, tp.Any]:
-    #     """Parses TF message."""
-    #     tf_data = {
-    #         "child": msg.child_frame_id,
-    #         "translation": {
-    #             "x": msg.translation.x,
-    #             "y": msg.translation.y,
-    #             "z": msg.translation.z,
-    #         },
-    #         "rotation": {
-    #             "x": msg.rotation.x,
-    #             "y": msg.rotation.y,
-    #             "z": msg.rotation.z,
-    #             "w": msg.rotation.w,
-    #         }
-    #     }
-    #     return {"data": tf_data}
+    def parse_tf_info(self, msg: geometry_msgs.msg.TransformStamped) -> tp.Dict[str, tp.Any]:
+        """Parses TF message."""
+        tf_data = {
+            "child": msg.child_frame_id,
+            "translation": {
+                "x": msg.transform.translation.x,
+                "y": msg.transform.translation.y,
+                "z": msg.transform.translation.z,
+            },
+            "rotation": {
+                "x": msg.transform.rotation.x,
+                "y": msg.transform.rotation.y,
+                "z": msg.transform.rotation.z,
+                "w": msg.transform.rotation.w,
+            }
+        }
+        return {"data": tf_data}
 
     
     def process_rosbag(self):
@@ -503,7 +637,8 @@ class RosBagSerializer(object):
 
             #this is to avoid reading customized messages that can show errors
             if topic not in self.topics:
-                continue
+                if topic != "/tf":
+                    continue
 
             print(topic)
             msg_type = get_message(self.topic_types_map[topic])
@@ -511,26 +646,32 @@ class RosBagSerializer(object):
             
             # crear condicional para cambiar el nombre del topic /tf según el child_frame_id a /tf/odom y
             # /tf/base_linkpara sincronizar los mensajes de odom y base_link de tf como topics separados
-            print("inicio test")
-            print(msg_type)
+            #print("inicio test")
+            #print(msg_type)
             if isinstance(msg, tf2_msgs.msg.TFMessage):
                 for transform in msg.transforms:
-                    print(transform.child_frame_id)
+                    #print(transform.child_frame_id)
                     if transform.child_frame_id in ('odom'):
-                        print(topic)
+                        #print(topic)
                         topic = topic.replace("tf", "tf/odom")
                         print(topic)
+                        #print(msg)
+                        msg = transform
+                        # se convierte de tf2_msgs.msg.TFMessage a geometry_msgs.msg.TransformStamped
+                        #print("espacio")
+                        #print(msg)
                     elif transform.child_frame_id in ('base_link'):
-                        print(topic)
+                        #print(topic)
                         topic = topic.replace("tf", "tf/base_link")
                         print(topic)
+                        msg = transform
                         #print("in tf test")
                     else:
                         skip_iteration = True
             if skip_iteration:
                 continue
 
-            print("fin test")
+            #print("fin test")
 
 
 

@@ -21,3 +21,11 @@ self.filters_dict = {topic: message_filters.SimpleFilter() for topic in self.top
 crear condicional para cambiar el nombre del topic /tf según el child_frame_id a /tf/odom y
 /tf/base_linkpara sincronizar los mensajes de odom y base_link de tf como topics separados
 si no es odom o base_link pasa el while
+en este paso se reemplaza msg = transform, osea que se convierte de tf2_msgs.msg.TFMessage a geometry_msgs.msg.TransformStamped
+para que el filtro pueda interpretar el timestamp del mensaje
+-se sincroniza imagen con tf alcanzando 91% (1087/1185) (muchos tf se repiten en varias imágenes) de los frames en comparación con 10% (119/1185) sincronizando con GPS
+-se procesa la transformada map-odom-base_link-camara para obtener la posición de base_link en el plano de referencia map (comprobado con ground truth)
+-se guarda tf en EXIF de jpg
+Pending:
+-releer el rosbag en la misma ejecución para guardar todas las cámaras necesarias
+-corregir bug de que varias imagenes tienen el mismo tf (evaluar si pasa en imagenes en las que se sepa que el bot se mueve)
